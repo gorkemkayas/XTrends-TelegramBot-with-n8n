@@ -1,3 +1,5 @@
+
+<h1 align="center">Automated X (Twitter) Trends → Telegram Bot using n8n & Docker</h1>
 <img width="1600" height="1200" alt="Shot (4)" src="https://github.com/user-attachments/assets/0d24be3f-bf9e-48fe-bb1d-54c0e4e80ebe" />
 
 
