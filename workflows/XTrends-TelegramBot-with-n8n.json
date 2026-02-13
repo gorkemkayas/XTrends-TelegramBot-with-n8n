@@ -1,0 +1,273 @@
+{
+  "name": "XTrends-TelegramBot-with-n8n",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 12,18,23 * * *"
+            },
+            {}
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "83b6eb91-5771-4821-bd50-c37b45d38eb9",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "https://trends24.in/turkey/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        208,
+        0
+      ],
+      "id": "321a50ab-0c11-40bb-9f04-98b22dd299b3",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = items[0].json.data;\n\n// meta description içinden \"Today's top ... trends ... in Turkey: ... . Explore\" kısmını çek\nconst m = html.match(/meta name=description content=\"([^\"]+)\"/i);\nif (!m) {\n  throw new Error(\"meta description bulunamadı\");\n}\n\nconst desc = m[1];\n\n// \"in Turkey:\" sonrasını al\nconst parts = desc.split(\"in Turkey:\");\nif (parts.length < 2) {\n  throw new Error(\"Description formatı beklenenden farklı\");\n}\n\nlet trendPart = parts[1];\n\n// \"Explore\" öncesini al (bazı sayfalarda nokta ile biter)\ntrendPart = trendPart.split(\"Explore\")[0].trim();\ntrendPart = trendPart.replace(/\\.$/, \"\").trim();\n\n// Trendleri virgülle ayır\nconst trends = trendPart.split(\",\").map(x => x.trim()).filter(Boolean);\n\n// İlk 5\nconst top5 = trends.slice(0, 5);\n\n// n8n’de her trend ayrı item olsun\nreturn top5.map(t => ({ json: { trend: t } }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        384,
+        0
+      ],
+      "id": "e58adde4-e9a9-4259-b545-612e3bf723e9",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "url": "=https://news.google.com/rss/search?q={{encodeURIComponent($json.trend)}}&hl=tr&gl=TR&ceid=TR:tr\n",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        592,
+        0
+      ],
+      "id": "0092eafe-0dc5-4ab6-82b6-6e160adcb553",
+      "name": "HTTP Request1",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const xml = $json.rss || $json.data || $json.body || \"\";\n\n// Trend'i RSS channel title içinden çıkar:  \"<title>\"Hayırlı Cumalar\" - Google Haberler</title>\"\nlet trend = null;\nconst m = xml.match(/<channel>[\\s\\S]*?<title>(.*?)<\\/title>/);\nif (m && m[1]) {\n  trend = m[1]\n    .replace(/&amp;/g, \"&\")\n    .replace(/&quot;/g, '\"')\n    .replace(/\\s*-\\s*Google Haberler\\s*$/i, \"\")\n    .replace(/^\"+|\"+$/g, \"\")   // baştaki/sondaki tırnakları sil\n    .trim();\n}\n\n// 1) CDATA'lı title'lar\nlet titles = [...xml.matchAll(/<item>[\\s\\S]*?<title><!\\[CDATA\\[(.*?)\\]\\]><\\/title>/g)]\n  .map(m => m[1].trim())\n  .filter(Boolean);\n\n// 2) Fallback: CDATA yoksa\nif (titles.length === 0) {\n  titles = [...xml.matchAll(/<item>[\\s\\S]*?<title>(.*?)<\\/title>/g)]\n    .map(m => m[1].replace(/&amp;/g, \"&\").trim())\n    .filter(t => t && t.toLowerCase() !== \"google news\");\n}\n\n// Kaynak adlarını temizle (– Posta, – BBC vs.)\ntitles = titles.map(t => t.replace(/\\s[-–]\\s.*$/, \"\").trim());\n\n// İlk 5 başlık\ntitles = titles.slice(0, 5);\n\nreturn {\n  json: {\n    trend: trend || \"(trend bulunamadı)\",\n    headlines: titles\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        0
+      ],
+      "id": "d4c81c64-d2a1-46d3-9ac5-b9b695d63be5",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{$json.bot}}/sendMessage\n",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{$json.chat}}"
+            },
+            {
+              "name": "text",
+              "value": "={{$json.body}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1424,
+        0
+      ],
+      "id": "2aebd64f-5f35-469b-9535-0d4b7d05119e",
+      "name": "HTTP Request2"
+    },
+    {
+      "parameters": {
+        "jsCode": "function uniq(arr) {\n  const seen = new Set();\n  const out = [];\n  for (const x of arr || []) {\n    const t = (x || \"\").trim();\n    if (!t) continue;\n    const k = t.toLowerCase().replace(/\\s+/g, \" \");\n    if (seen.has(k)) continue;\n    seen.add(k);\n    out.push(t);\n  }\n  return out;\n}\n\nfunction shorten(s, max = 75) {\n  s = (s || \"\").trim().replace(/\\s+/g, \" \");\n  if (s.length <= max) return s;\n  return s.slice(0, max - 1).trim() + \"…\";\n}\n\nconst now = new Date().toLocaleString(\"tr-TR\", {\n  timeZone: \"Europe/Istanbul\",\n  day: \"2-digit\",\n  month: \"long\",\n  hour: \"2-digit\",\n  minute: \"2-digit\"\n});\n\n// 𝕏 sembolü çoğu telefonda düzgün çıkar. İstersen \"X\" de yazabiliriz.\nlet text = `𝕏📈 TR Trends — Top 5\\n🇹🇷 🕒 ${now}\\n`;\n\nfor (const it of items.slice(0, 5)) {\n  const trend = (it.json.trend || \"Trend\").trim();\n  let heads = uniq(it.json.headlines || []).slice(0, 2).map(h => shorten(h, 75));\n\n  const hasNews = heads.length > 0;\n  text += `\\n${hasNews ? \"📈\" : \"🫥\"} ${trend}\\n`;\n\n  if (!hasNews) {\n    text += `• Haber bulunamadı\\n`;\n  } else {\n    for (const h of heads) text += `• ${h}\\n`;\n  }\n}\n\nreturn [{ json: { body: text } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        0
+      ],
+      "id": "490af063-c3ba-4fcd-95ca-1f1d56ecf93a",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "35730283-4f18-458e-9c58-c3c0fcd58e18",
+              "name": "=bot",
+              "value": "={{$env.BOT_TR}}",
+              "type": "string"
+            },
+            {
+              "id": "4b60544a-e363-43d6-b6f6-228a8a3403c9",
+              "name": "=chat",
+              "value": "={{$env.CHAT_TR}}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "include": "except",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1200,
+        0
+      ],
+      "id": "d9a59425-5aaa-4383-85a0-0ec9fa7673a3",
+      "name": "Edit Fields"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "timezone": "Europe/Istanbul",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "fa159876-c5d5-4185-943e-f6cb31854a8e",
+  "meta": {
+    "instanceId": "989a5e56a4020d972fff824f2d01f536f09ff98002464a659dccfca8a17643e4"
+  },
+  "id": "SSXgAzz8VhFBtCcF",
+  "tags": []
+}
